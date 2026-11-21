@@ -1,0 +1,358 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+import { Mail, ScrollText } from "lucide-react";
+
+import type { OrbitNodeId } from "@/lib/frames";
+
+import { cn } from "@/lib/utils";
+
+import { PixelAgent } from "../pixel-agent";
+
+export type Handoff = {
+  id: number;
+  workItemId: string | null;
+  from: OrbitNodeId;
+  to: OrbitNodeId;
+  kind: "handoff" | "question" | "broadcast";
+  /** What is being passed, in a few words. */
+  label: string;
+  /** The sender's note. */
+  detail: string;
+  createdAt: string;
+};
+
+type Seat = { angle: number; actorId: string; label: string };
+
+export const NODE_OF: Record<string, OrbitNodeId> = {
+  "aro.compute": "compute",
+  "aro.finance": "finance",
+  "aro.vendor": "vendor",
+  "aro.budget": "budget",
+  "aro.policy": "policy",
+  "aro.capacity": "capacity",
+  "agent.compute": "compute",
+  "agent.finance": "finance",
+  "agent.vendor": "vendor",
+  "agent.budget": "budget",
+  "agent.policy": "policy",
+  "agent.capacity": "capacity",
+};
+
+const HOP = 380;
+
+const FADE = 300;
+
+const SPEED = 0.22;
+
+const SIZE = 48;
+
+const OFF = 10;
+
+const JUMP = 13;
+
+const STOP_RUN = 750;
+
+const STOP_GIVE = 900;
+
+function broadcastStops(h: Handoff, seats: Record<OrbitNodeId, Seat>) {
+  const a = seats[h.from].angle;
+  const others = (Object.entries(seats) as [OrbitNodeId, Seat][])
+    .filter(([id]) => id !== h.from)
+    .map(([id, s]) => ({ node: id, deg: s.angle - OFF + 360 * Math.ceil((a + OFF - (s.angle - OFF)) / 360) }))
+    .sort((x, y) => x.deg - y.deg);
+  return { start: a + OFF, stops: others, home: a - OFF + 360 };
+}
+
+function plan(h: Handoff, seats: Record<OrbitNodeId, Seat>, R: number) {
+  const a = seats[h.from].angle;
+  if (h.kind === "broadcast") {
+    const { start, stops, home } = broadcastStops(h, seats);
+    const run = (stops.length + 1) * STOP_RUN + stops.length * STOP_GIVE;
+    return { start, end: home, span: home - start, dir: 1, run, give: 0, back: 0, total: HOP + run + FADE, stops };
+  }
+  const b = seats[h.to].angle;
+  const delta = ((b - a + 540) % 360) - 180;
+  const dir = Math.sign(delta) || 1;
+  const start = a + dir * OFF;
+  const end = b - dir * OFF;
+  const span = end - start;
+  const run = Math.min(3400, Math.max(1100, (Math.abs(span) * Math.PI * R) / 180 / SPEED));
+  const give = h.kind === "question" ? 1700 : 1300;
+  const back = run * 0.7;
+  return { start, end, span, dir, run, give, back, total: HOP + run + give + back + FADE, stops: undefined as { node: OrbitNodeId; deg: number }[] | undefined };
+}
+
+type Plan = ReturnType<typeof plan>;
+
+const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
+const clamp = (t: number) => Math.max(0, Math.min(1, t));
+
+function pose(p: Plan, t: number) {
+  if (p.stops) return broadcastPose(p, p.stops, t);
+  const tRun = t - HOP;
+  const tGive = tRun - p.run;
+  const tBack = tGive - p.give;
+  const tFade = tBack - p.back;
+  const phase = tRun < 0 ? "hop" : tGive < 0 ? "run" : tBack < 0 ? "give" : tFade < 0 ? "back" : "fade";
+  const deg =
+    phase === "run"
+      ? p.start + p.span * ease(tRun / p.run)
+      : phase === "give"
+        ? p.end
+        : phase === "back"
+          ? p.end - p.span * ease(tBack / p.back)
+          : phase === "fade" && p.back === 0
+            ? p.end
+            : p.start;
+  return { phase, deg, tRun, tGive, tBack, tFade };
+}
+
+function broadcastPose(p: Plan, stops: { node: OrbitNodeId; deg: number }[], t: number) {
+  const tRun = t - HOP;
+  const tFade = tRun - p.run;
+  const base = { tRun, tGive: 0, tBack: 0, tFade, stop: -1 };
+  if (tRun < 0) return { ...base, phase: "hop", deg: p.start };
+  if (tFade >= 0) return { ...base, phase: "fade", deg: p.end };
+  const points = [p.start, ...stops.map((s) => s.deg), p.end];
+  let left = tRun;
+  for (let i = 0; i < points.length - 1; i++) {
+    if (left < STOP_RUN) return { ...base, phase: "run", deg: points[i] + (points[i + 1] - points[i]) * ease(left / STOP_RUN) };
+    left -= STOP_RUN;
+    if (i < stops.length) {
+      if (left < STOP_GIVE) return { ...base, phase: "give", deg: points[i + 1], tGive: left, stop: i };
+      left -= STOP_GIVE;
+    }
+  }
+  return { ...base, phase: "fade", deg: p.end };
+}
+
+export function HandoffRunner({
+  Avatar = PixelAgent,
+  handoffs,
+  seats,
+  center,
+  radius,
+  hidden,
+  onPass,
+  onArrive,
+  onRunner,
+}: {
+  Avatar?: typeof PixelAgent;
+  handoffs: Handoff[];
+  seats: Record<OrbitNodeId, Seat>;
+  center: { x: number; y: number };
+  radius: number;
+  hidden: boolean;
+  /** A broadcast runner went past this seat. */
+  onPass?: (node: OrbitNodeId) => void;
+  /** The runner reached the receiver. */
+  onArrive?: (h: Handoff) => void;
+  /** Which employee is out running right now, or null. */
+  onRunner?: (node: OrbitNodeId | null) => void;
+}) {
+  const [since] = useState(() => Date.now() - 30_000);
+  const [played, setPlayed] = useState<number[]>([]);
+  const [current, setCurrent] = useState<{ id: number; at: number } | null>(null);
+  const [now, setNow] = useState(0);
+  const queue = useRef<number[]>([]);
+  const busy = useRef(false);
+
+  const h = current ? handoffs.find((x) => x.id === current.id) : undefined;
+  const p = h ? plan(h, seats, radius) : null;
+  const live = useRef<{ h?: Handoff; p: Plan | null; onPass?: typeof onPass; onArrive?: typeof onArrive; onRunner?: typeof onRunner; handoffs: Handoff[]; seats: typeof seats }>({
+    p: null,
+    handoffs,
+    seats,
+  });
+  useEffect(() => {
+    live.current = { h, p, onPass, onArrive, onRunner, handoffs, seats };
+  });
+
+  // Starts the next queued run. Only called from callbacks.
+  const next = useRef(() => {});
+  useEffect(() => {
+    next.current = () => {
+      const id = queue.current.shift();
+      if (id === undefined) {
+        busy.current = false;
+        setCurrent(null);
+        live.current.onRunner?.(null);
+        return;
+      }
+      busy.current = true;
+      const at = performance.now();
+      setNow(at);
+      setCurrent({ id, at });
+      live.current.onRunner?.(live.current.handoffs.find((x) => x.id === id)?.from ?? null);
+    };
+  }, []);
+  const enqueue = (ids: number[]) => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    queue.current.push(...ids.filter((id) => !queue.current.includes(id) && !(busy.current && current?.id === id)));
+    if (!busy.current) next.current();
+  };
+  const enqueueRef = useRef(enqueue);
+  useEffect(() => {
+    enqueueRef.current = enqueue;
+  });
+
+  // Fresh hand-offs play once, in order.
+  const freshKey = handoffs
+    .filter((x) => Date.parse(x.createdAt) > since && !played.includes(x.id))
+    .map((x) => x.id)
+    .join(",");
+  useEffect(() => {
+    if (!freshKey) return;
+    const ids = freshKey.split(",").map(Number);
+    const raf = requestAnimationFrame(() => {
+      setPlayed((list) => [...list, ...ids]);
+      enqueueRef.current(ids);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [freshKey]);
+
+  useEffect(() => {
+    if (!current) return;
+    let raf = 0;
+    let lastStop = -1;
+    let arrived = false;
+    const tick = (t: number) => {
+      const { h: run, p: pl, onPass: pass, onArrive: arrive } = live.current;
+      // A run whose hand-off is gone (the task changed) ends here.
+      if (!run || !pl || t - current.at >= pl.total) {
+        next.current();
+        return;
+      }
+      const at = pose(pl, t - current.at);
+      // A broadcast hands the rule to each seat as it stops there; that seat nods.
+      if (pl.stops && "stop" in at && at.stop >= 0 && at.stop !== lastStop && at.tGive > 380) {
+        lastStop = at.stop;
+        pass?.(pl.stops[at.stop].node);
+      }
+      if (!arrived && at.phase === "give" && !pl.stops) {
+        arrived = true;
+        arrive?.(run);
+      }
+      setNow(t);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [current]);
+
+  const pt = (deg: number, r = radius) => {
+    const a = (deg * Math.PI) / 180;
+    return { x: center.x + r * Math.cos(a), y: center.y + r * Math.sin(a) };
+  };
+
+
+  let scene: React.ReactNode = null;
+  if (h && p && current && !hidden) {
+    const t = now - current.at;
+    const at = pose(p, t);
+    const { phase, deg, tRun, tGive, tBack, tFade } = at;
+    const broadcast = h.kind === "broadcast";
+    const stopNode = broadcast && "stop" in at && at.stop >= 0 ? p.stops?.[at.stop].node : undefined;
+
+    // Moving toward the receiver on "run", away on "back".
+    const moving = phase === "run" || phase === "back";
+    const sweep = phase === "back" ? -p.dir : p.dir;
+    const dx = -Math.sin((deg * Math.PI) / 180) * sweep;
+    const facingLeft = dx < 0;
+    const here = pt(deg);
+    const seatFrom = pt(seats[h.from].angle);
+    const seatTo = pt(seats[h.to].angle);
+
+    const scale = phase === "hop" ? 0.5 + 0.5 * clamp(t / HOP) : phase === "fade" ? 1 - 0.5 * clamp(tFade / FADE) : 1;
+    const opacity = phase === "hop" ? clamp(t / (HOP * 0.6)) : phase === "fade" ? 1 - clamp(tFade / FADE) : 1;
+    const pos = phase === "hop" ? { x: seatFrom.x + (here.x - seatFrom.x) * clamp(t / HOP), y: seatFrom.y + (here.y - seatFrom.y) * clamp(t / HOP) } : here;
+    // A short hop on the way out of the seat, and a jump over any seat it passes.
+    const near = Math.min(
+      ...Object.entries(seats)
+        .filter(([id]) => id !== h.from && id !== h.to)
+        .map(([, s]) => Math.abs(((deg - s.angle + 540) % 360) - 180)),
+    );
+    const lift = phase === "hop" ? Math.sin(Math.PI * clamp(t / HOP)) * 22 : moving && near < JUMP ? Math.cos((near / JUMP) * (Math.PI / 2)) * 46 : 0;
+
+    // The note rides above the runner, then flies into the receiver's seat.
+    const giveT = phase === "give" && !broadcast ? clamp(tGive / 520) : 0;
+    const noteVisible = phase === "hop" || phase === "run" || (phase === "give" && (broadcast || giveT < 1));
+    const headY = pos.y - SIZE - lift - 10;
+    const note =
+      phase === "give"
+        ? { x: pos.x + (seatTo.x - pos.x) * ease(giveT), y: headY + (seatTo.y - 20 - headY) * ease(giveT) - Math.sin(Math.PI * giveT) * 40, s: 1 - 0.75 * giveT }
+        : { x: pos.x, y: headY, s: phase === "hop" ? clamp(t / HOP) : 1 };
+    const reply = phase === "give" && tGive > 480 ? (broadcast ? "Got it" : h.kind === "question" ? "Hmm, let me look" : "Got it") : null;
+    const replyAt = stopNode ? pt(seats[stopNode].angle) : seatTo;
+    // Broadcast: a copy of the rule flies from the runner into the seat it stopped at.
+    const copyT = stopNode ? clamp(tGive / 450) : 0;
+    const copy = stopNode && copyT < 1 ? { x: pos.x + (replyAt.x - pos.x) * ease(copyT), y: pos.y - SIZE / 2 + (replyAt.y - 10 - (pos.y - SIZE / 2)) * ease(copyT) - Math.sin(Math.PI * copyT) * 36 } : null;
+    const Prop = broadcast ? ScrollText : Mail;
+
+    // Dust puffs behind the feet while running.
+    const puffs = moving
+      ? [90, 180, 270].map((lag, i) => {
+          const tt = phase === "run" ? tRun - lag : tBack - lag;
+          const len = phase === "run" ? p.run : p.back;
+          if (tt < 0) return null;
+          const d = broadcast ? pose(p, t - lag).deg : phase === "run" ? p.start + p.span * ease(clamp(tt / len)) : p.end - p.span * ease(clamp(tt / len));
+          const q = pt(d);
+          return <span key={i} className="absolute size-1.5 rounded-[1px] bg-zinc-300" style={{ left: q.x - 3, top: q.y - 4, opacity: 0.7 - i * 0.22 }} />;
+        })
+      : null;
+
+    scene = (
+      <>
+        {puffs}
+        <div className="absolute" style={{ left: pos.x - SIZE / 2, top: pos.y - SIZE - lift, width: SIZE, height: SIZE, opacity, transform: "scale(" + scale + ")", transformOrigin: "50% 100%" }}>
+          <div className={cn(moving && "px-run")} style={{ transform: facingLeft ? "scaleX(-1)" : undefined }}>
+            <Avatar actorId={seats[h.from].actorId} size={SIZE} working={moving} />
+          </div>
+          {phase === "back" || (phase === "fade" && !broadcast) ? null : (
+            <Prop className="absolute -right-2.5 top-[26px] size-5 rounded-[3px] bg-white text-brand-ink" strokeWidth={2.25} />
+          )}
+          {h.kind === "question" && (phase === "run" || phase === "hop") ? (
+            <span className="absolute -top-1 -left-3 font-mono text-[18px] leading-none font-bold text-zinc-900">?</span>
+          ) : null}
+        </div>
+        {noteVisible ? (
+          <div
+            className="absolute w-max max-w-[300px] rounded-xl bg-white px-3 py-2 shadow-[0_2px_12px_rgb(0_0_0/0.14)] ring-1 ring-zinc-200"
+            style={{ left: note.x, top: note.y, transform: "translate(-50%, -100%) scale(" + note.s + ")", transformOrigin: "50% 100%" }}
+          >
+            <div className="flex items-center gap-1.5 text-[16px] font-medium text-zinc-900">
+              <Prop className="size-4 shrink-0 text-brand-ink" />
+              <span className="truncate">{h.label}</span>
+            </div>
+            {h.detail ? <div className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-zinc-500">{h.detail}</div> : null}
+            <div className="mt-1 font-mono text-[11px] tracking-wide text-zinc-400 uppercase">{broadcast ? "To everyone" : "To " + seats[h.to].label}</div>
+          </div>
+        ) : null}
+        {reply ? (
+          <div
+            className="orbit-spawn absolute rounded-lg bg-zinc-900 px-2.5 py-1 text-[15px] font-medium whitespace-nowrap text-white"
+            style={{ left: replyAt.x, top: replyAt.y - 48, transform: "translate(-50%, -100%)" }}
+          >
+            {reply}
+          </div>
+        ) : null}
+        {copy ? (
+          <ScrollText
+            className="absolute size-6 rounded-[3px] bg-white p-0.5 text-brand-ink shadow-[0_1px_4px_rgb(0_0_0/0.18)]"
+            strokeWidth={2.25}
+            style={{ left: copy.x - 12, top: copy.y - 12, transform: "scale(" + (1 - 0.4 * copyT) + ")" }}
+          />
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30">
+      {scene}
+    </div>
+  );
+}

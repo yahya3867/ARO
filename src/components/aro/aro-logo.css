@@ -1,0 +1,26 @@
+/* ARO-style compact lockup: symbol + lowercase wordmark */
+.aro-logo {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.aro-logo svg {
+  display: block;
+  flex: none;
+  image-rendering: pixelated;
+}
+
+.aro-wordmark {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 23px;
+  letter-spacing: -0.03em;
+  color: #000000;
+}

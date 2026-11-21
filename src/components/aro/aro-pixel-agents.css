@@ -1,0 +1,17 @@
+/* ARO pixel agents: the SVG draws the pixels; CSS handles animation and presentation. */
+.aro-pixel-agent { overflow: visible; flex-shrink: 0; image-rendering: pixelated; }
+.aro-pixel-agent rect { shape-rendering: crispEdges; }
+@keyframes aro-agent-bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-1px) } }
+@keyframes aro-agent-blink { 0%,93%,100% { opacity:0 } 94%,98% { opacity:1 } }
+@keyframes aro-agent-hop { 0%,100% { transform:translateY(0) } 40% { transform:translateY(-3px) } }
+@keyframes aro-agent-run { 0%,100% { transform:translateY(0) rotate(-4deg) } 50% { transform:translateY(-2px) rotate(4deg) } }
+@keyframes aro-beacon-pulse { 0%,100% { opacity:.55 } 50% { opacity:1 } }
+.aro-agent-bob { animation: aro-agent-bob 1.5s steps(1,end) infinite; }
+.aro-agent-working { animation: aro-agent-bob .35s steps(1,end) infinite; }
+.aro-agent-running { animation: aro-agent-run .24s steps(1,end) infinite; transform-origin: center bottom; }
+.aro-agent-happy { animation: aro-agent-hop .48s steps(1,end) 3; }
+.aro-agent-blink { opacity:0; animation: aro-agent-blink 4.3s steps(1,end) infinite; }
+.aro-beacon-pulse { animation: aro-beacon-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion:reduce) {
+ .aro-agent-bob,.aro-agent-working,.aro-agent-running,.aro-agent-happy,.aro-agent-blink,.aro-beacon-pulse { animation:none; }
+}

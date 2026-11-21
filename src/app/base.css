@@ -1,0 +1,440 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-brand-ink: var(--brand-ink);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: only light;
+  /* Meadow palette, taken from the intro card: grass green for status, stem green for text, near-black for actions. */
+  --brand-ink: #3a7f2c;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #5aac45;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: #ecf6e6;
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: #b42318;
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #5aac45;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: #5aac45;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ecf6e6;
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: #5aac45;
+}
+
+.dark {
+  --brand-ink: #d9e585;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: #c6d600;
+  --primary-foreground: #20220c;
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: #30341b;
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: #ffb4ab;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #c6d600;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: #c6d600;
+  --sidebar-primary-foreground: #20220c;
+  --sidebar-accent: #30341b;
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #c6d600;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+
+@layer utilities {
+  /* Warm white behind the canvas and board, so white cards stand out with no pattern. */
+  .bg-canvas {
+    background-color: #fbfaf7;
+  }
+  .card-soft {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 20px rgb(0 0 0 / 0.05);
+    outline: 1px solid rgb(228 228 231 / 0.9);
+  }
+  .flow-dash {
+    stroke-dasharray: 4 6;
+    animation: el-dash 0.9s linear infinite;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  .hatch-red {
+    background-image: repeating-linear-gradient(135deg, rgb(180 35 24 / 0.55) 0 3px, rgb(180 35 24 / 0.18) 3px 7px);
+  }
+  .hatch-zinc {
+    background-image: repeating-linear-gradient(135deg, rgb(161 161 170 / 0.45) 0 3px, rgb(161 161 170 / 0.12) 3px 7px);
+  }
+}
+
+@keyframes el-flash {
+  from {
+    background-color: rgb(90 172 69 / 0.14);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes el-enter {
+  from {
+    opacity: 0.35;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-flash {
+  animation: el-flash 1.8s ease-out;
+}
+
+.animate-enter {
+  animation: el-enter 0.3s ease-out both;
+}
+
+/* New frames pop out of their node. No fill mode, so inline opacity (dimming) still applies afterwards. */
+@keyframes orbit-spawn {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.orbit-spawn {
+  animation: orbit-spawn 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+
+@keyframes el-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Pixel employees: a one-pixel bob in hard steps, plus an occasional blink. */
+@keyframes px-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+@keyframes px-blink {
+  0%, 93%, 100% { opacity: 0; }
+  94%, 98% { opacity: 1; }
+}
+.px-bob { animation: px-bob 1.4s steps(1, end) infinite; }
+.px-bob-fast { animation: px-bob 0.36s steps(1, end) infinite; }
+.px-blink { opacity: 0; animation: px-blink 4.2s steps(1, end) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .px-bob, .px-bob-fast, .px-blink { animation: none; }
+}
+
+/* A runner leans into its stride and bounces in hard steps. */
+@keyframes px-run {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-3px) rotate(6deg); }
+}
+.px-run > * { animation: px-run 0.24s steps(1, end) infinite; transform-origin: 50% 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .px-run > * { animation: none; }
+}
+
+/* Reactions. SVG groups animate around their own feet. */
+/* Each reaction plays once; slump holds. */
+[class*="px-mood-"] { transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes px-hop {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(-4px); }
+  60% { transform: translateY(0); }
+}
+@keyframes px-nod {
+  0%, 100% { transform: translateY(0); }
+  25%, 75% { transform: translateY(1px); }
+  50% { transform: translateY(0); }
+}
+@keyframes px-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1px); }
+  75% { transform: translateX(1px); }
+}
+.px-mood-hop { animation: px-hop 0.5s ease-out 2; }
+.px-mood-party { animation: px-hop 0.42s ease-out 5; }
+.px-mood-nod { animation: px-nod 0.7s steps(1, end) 1; }
+.px-mood-shake { animation: px-shake 0.16s steps(1, end) 8; }
+.px-mood-tilt { transform: rotate(-9deg); transition: transform 0.2s; }
+.px-mood-slump { transform: translateY(1px) rotate(5deg); }
+
+/* What a working employee is doing, shown on the icon in its bubble. */
+@keyframes act-sweep { from { transform: translateX(-2px); } to { transform: translateX(2px); } }
+@keyframes act-tap { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.8); } }
+@keyframes act-scribble { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+@keyframes act-send { 0% { transform: translate(-1px, 1px); opacity: 1; } 70% { transform: translate(3px, -3px); opacity: 0.4; } 100% { transform: translate(-1px, 1px); opacity: 1; } }
+.act-sweep { animation: act-sweep 0.7s ease-in-out infinite alternate; }
+.act-tap { animation: act-tap 0.3s steps(1, end) infinite; }
+.act-scribble { animation: act-scribble 0.22s ease-in-out infinite alternate; }
+.act-send { animation: act-send 0.9s ease-in-out infinite; }
+
+@keyframes think-dot { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-3px); } }
+.think-dot { animation: think-dot 0.9s ease-in-out infinite; }
+
+/* Guidance lands on the seat as a sticky note. */
+@keyframes sticky-drop {
+  0% { transform: translateY(-60px) rotate(-40deg); opacity: 0; }
+  60% { transform: translateY(4px) rotate(6deg); opacity: 1; }
+  100% { transform: none; }
+}
+.sticky-drop { animation: sticky-drop 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes stamp-in {
+  0% { transform: scale(2.2); opacity: 0; }
+  60% { transform: scale(0.94); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.stamp-in { animation: stamp-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="px-mood-"], .act-sweep, .act-tap, .act-scribble, .act-send, .think-dot, .sticky-drop, .stamp-in { animation: none; }
+}
+
+/* A task closing: the check pops in, a ring pulses out, sparks burst, the summary rows rise in turn. */
+@keyframes done-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes done-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes done-spark {
+  from {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--dx), var(--dy)) scale(0.3);
+    opacity: 0;
+  }
+}
+
+@keyframes done-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.done-pop {
+  animation: done-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.done-ring {
+  animation: done-ring 1.1s ease-out both;
+}
+.done-spark {
+  animation: done-spark 0.9s ease-out both;
+}
+.done-rise {
+  animation: done-rise 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .done-pop,
+  .done-ring,
+  .done-spark,
+  .done-rise {
+    animation: none;
+  }
+  .done-ring,
+  .done-spark {
+    display: none;
+  }
+}
+
+/* Landing meadow: clouds drift, birds cross, wheat and leaves sway, all in hard steps. */
+.pxl-cloud-a { animation: pxl-drift 40s steps(20, end) infinite; }
+.pxl-cloud-b { animation: pxl-drift 55s steps(24, end) infinite reverse; }
+@keyframes pxl-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(14px); }
+}
+.pxl-birds { animation: pxl-fly 38s linear infinite; }
+@keyframes pxl-fly {
+  from { transform: translateX(-90px); }
+  to { transform: translateX(330px); }
+}
+.pxl-flap { transform-box: fill-box; transform-origin: 50% 50%; animation: pxl-flap 0.5s steps(1, end) infinite; }
+@keyframes pxl-flap {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(-1); }
+}
+.pxl-wheat, .pxl-leaf, .pxl-sway { transform-box: fill-box; transform-origin: 50% 100%; }
+.pxl-wheat { animation: pxl-wheat 3.2s steps(4, end) infinite; }
+.pxl-leaf { animation: pxl-wheat 4.6s steps(3, end) infinite reverse; }
+@keyframes pxl-wheat {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(3deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pxl-cloud-a, .pxl-cloud-b, .pxl-birds, .pxl-flap, .pxl-wheat, .pxl-leaf { animation: none; }
+}
+
+/* Landing: an agent picked up by the scruff squirms; dropped, it squashes and settles. */
+@keyframes px-squirm {
+  0%   { transform: rotate(-17deg) translateY(0) scale(1, 1); }
+  20%  { transform: rotate(-4deg) translateY(-3px) scale(1.06, 0.94); }
+  40%  { transform: rotate(15deg) translateY(1px) scale(0.95, 1.05); }
+  55%  { transform: rotate(19deg) translateY(0) scale(1, 1); }
+  75%  { transform: rotate(3deg) translateY(-3px) scale(1.06, 0.94); }
+  90%  { transform: rotate(-12deg) translateY(1px) scale(0.96, 1.04); }
+  100% { transform: rotate(-17deg) translateY(0) scale(1, 1); }
+}
+/* Held by the top of the head like a Mii: it dangles, swings, and kicks. The outer wrapper leans with how fast you drag. */
+.px-held { animation: px-squirm 0.6s ease-in-out infinite; transform-origin: 50% 0%; filter: drop-shadow(0 12px 6px rgb(30 60 20 / 0.22)); }
+.px-held .px-kick { animation: px-kick 0.18s steps(2, end) infinite; transform-origin: 50% 100%; }
+@keyframes px-kick {
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50% { transform: translateY(-2px) rotate(5deg); }
+}
+.px-lean { transition: transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1); transform-origin: 50% 0%; }
+@keyframes px-land {
+  0% { transform: scale(1.15, 0.82); }
+  45% { transform: scale(0.94, 1.08); }
+  100% { transform: scale(1, 1); }
+}
+.px-land { animation: px-land 0.36s ease-out both; animation-delay: var(--px-fall, 0s); transform-origin: 50% 100%; }
+/* Landing: a speech bubble pops up, holds, and fades. */
+@keyframes px-say {
+  0% { opacity: 0; transform: translateY(4px) scale(0.6); }
+  10% { opacity: 1; transform: translateY(-2px) scale(1.05); }
+  16%, 88% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-4px) scale(0.95); }
+}
+.px-say { animation: px-say 2.8s ease-out both; transform-origin: 50% 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .px-held, .px-land, .px-held .px-kick { animation: none; }
+  .px-say { animation: none; }
+}
+

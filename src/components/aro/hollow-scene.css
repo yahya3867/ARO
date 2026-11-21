@@ -1,0 +1,7 @@
+.hollow-beacon { animation: hollow-beacon 3s steps(3, end) infinite; }
+.hollow-water { animation: hollow-water 5s steps(3, end) infinite alternate; }
+@keyframes hollow-beacon { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
+@keyframes hollow-water { from { transform: translateX(0); } to { transform: translateX(2px); } }
+@media (prefers-reduced-motion: reduce) {
+  .hollow-beacon, .hollow-water { animation: none; }
+}

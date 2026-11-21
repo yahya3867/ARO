@@ -1,0 +1,963 @@
+"use client";
+
+import { resourceLifeEvents } from "@/lib/resource-life";
+
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+
+import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, RotateCcw, X } from "lucide-react";
+
+import { type Frame, type OrbitNodeId } from "@/lib/frames";
+
+import { cn } from "@/lib/utils";
+
+import { AgentAvatar } from "../status";
+
+import { PixelAgent, spriteTint } from "../pixel-agent";
+
+import { buildTime, DH, DW, FrameView } from "./frame-view";
+
+import { crew } from "@/server/aro/catalog";
+
+import type { Snapshot } from "@/server/aro/runtime";
+
+import { HandoffRunner, type Handoff } from "./handoff-runner";
+
+import { ApprovalVisitors, FrameWorker, SeatLife, spriteMood, useAgentLife } from "./agent-life";
+
+const W = 1600;
+
+const H = 960;
+
+const CX = W / 2;
+
+const CY = H / 2;
+
+const NODE_W = 224;
+
+const NODE_H = 60;
+
+const FW = 128;
+
+const FH = 96;
+
+const GAP = 14;
+
+const REACH = 40;
+
+const INNER = FW / DW;
+
+const FRESH_MS = 30_000;
+
+const NEXT_MS = 2200;
+
+const NEXT_BUSY_MS = 700;
+
+const BUILD_DELAY = 350;
+
+function useStagedFrames(frames: Frame[]) {
+  const [since] = useState(() => Date.now() - FRESH_MS);
+  const [revealed, setRevealed] = useState<Record<string, true>>({});
+  const [building, setBuilding] = useState<Record<string, true>>({});
+  const lastAt = useRef(0);
+  const timers = useRef<number[]>([]);
+
+  const pending = frames
+    .filter((f) => f.tone !== "live" && !revealed[f.id] && Date.parse(f.createdAt) > since)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  // Live refreshes rebuild frame objects, so the timer keys on the id and duration.
+  const headId = pending[0]?.id;
+  const headTime = pending[0] ? buildTime(pending[0].spec) : 0;
+  const backlog = pending.length;
+
+  useEffect(() => {
+    if (!headId) return;
+    const wait = Math.max(0, lastAt.current + (backlog > 2 ? NEXT_BUSY_MS : NEXT_MS) - Date.now());
+    const id = window.setTimeout(() => {
+      lastAt.current = Date.now();
+      setRevealed((r) => ({ ...r, [headId]: true }));
+      setBuilding((b) => ({ ...b, [headId]: true }));
+      const done = window.setTimeout(() => {
+        setBuilding((b) => {
+          const next = { ...b };
+          delete next[headId];
+          return next;
+        });
+      }, BUILD_DELAY + headTime);
+      timers.current.push(done);
+    }, wait);
+    return () => window.clearTimeout(id);
+  }, [headId, headTime, backlog]);
+
+  useEffect(() => {
+    const list = timers.current;
+    return () => list.forEach((t) => window.clearTimeout(t));
+  }, []);
+
+  const hidden = new Set(pending.map((f) => f.id));
+  // The working indicator waits until the records it works from have appeared.
+  const visible = frames.filter((f) => !hidden.has(f.id) && !(f.tone === "live" && backlog > 0));
+  return { visible, building };
+}
+
+type Layout = "up" | "down" | "left" | "right";
+
+// Seat order is visual layout, independent of the workflow's execution order.
+export const EMPLOYEES = (["compute", "finance", "vendor", "budget", "policy", "capacity"] as const).map(id=>{
+  const agent=crew.find(a=>a.id===id)!;
+  return {id,actorId:"aro."+id,label:agent.name,job:agent.remit};
+});
+
+type SeatStyle = "current" | "tile" | "dot" | "ring";
+
+const SEAT_STYLES: SeatStyle[] = ["current", "tile", "dot", "ring"];
+
+function readSeatStyle(): SeatStyle {
+  const v = new URLSearchParams(window.location.search).get("seats");
+  return SEAT_STYLES.includes(v as SeatStyle) ? (v as SeatStyle) : "ring";
+}
+
+function useSeatStyle() {
+  return useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("popstate", cb);
+      return () => window.removeEventListener("popstate", cb);
+    },
+    readSeatStyle,
+    () => "ring" as SeatStyle,
+  );
+}
+
+const R = EMPLOYEES.length <= 2 ? 200 : 270;
+
+const MAX_FRAMES = EMPLOYEES.length > 3 ? 6 : 9;
+
+const SHOW_RING_LABEL = EMPLOYEES.length <= 3;
+
+const LABEL_ARC: [number, number] = [155, 25];
+
+function layoutFor(angle: number): Layout {
+  const c = Math.cos((angle * Math.PI) / 180);
+  if (c < -0.3) return "left";
+  if (c > 0.3) return "right";
+  return Math.sin((angle * Math.PI) / 180) < 0 ? "up" : "down";
+}
+
+const START = EMPLOYEES.length > 3 ? -90 : 180;
+
+const NODES = EMPLOYEES.map((e, i) => {
+  const angle = (((START + (i * 360) / EMPLOYEES.length) % 360) + 360) % 360;
+  return { ...e, angle, layout: layoutFor(angle) };
+});
+
+const NODE = Object.fromEntries(NODES.map((n) => [n.id, n])) as Record<OrbitNodeId, (typeof NODES)[number]>;
+
+function at(angle: number) {
+  const a = (angle * Math.PI) / 180;
+  return { x: CX + R * Math.cos(a), y: CY + R * Math.sin(a) };
+}
+
+function slots(id: OrbitNodeId, count: number) {
+  const { angle, layout } = NODE[id];
+  const p = at(angle);
+  const out: { x: number; y: number }[] = [];
+  if (layout === "up" || layout === "down") {
+    const width = count * FW + (count - 1) * GAP;
+    const y = layout === "up" ? p.y - NODE_H / 2 - REACH - FH : p.y + NODE_H / 2 + REACH;
+    for (let i = 0; i < count; i++) out.push({ x: p.x - width / 2 + i * (FW + GAP), y });
+    return out;
+  }
+  const rows = Math.ceil(count / 3);
+  const top = p.y - (rows * FH + (rows - 1) * GAP) / 2;
+  for (let i = 0; i < count; i++) {
+    const row = Math.floor(i / 3);
+    const col = row % 2 === 0 ? i % 3 : 2 - (i % 3);
+    const near = layout === "right" ? p.x + NODE_W / 2 + REACH : p.x - NODE_W / 2 - REACH - FW;
+    out.push({ x: layout === "right" ? near + col * (FW + GAP) : near - col * (FW + GAP), y: top + row * (FH + GAP) });
+  }
+  return out;
+}
+
+function chain(id: OrbitNodeId, pos: { x: number; y: number }[]) {
+  if (!pos.length) return { entry: "", links: [] as string[] };
+  const { angle, layout } = NODE[id];
+  const p = at(angle);
+  const first = pos[0];
+  let entry: string;
+  if (layout === "up" || layout === "down") {
+    const edge = layout === "up" ? first.y + FH : first.y;
+    const spine = layout === "up" ? edge + 22 : edge - 22;
+    entry = "M " + p.x + " " + (layout === "up" ? p.y - NODE_H / 2 : p.y + NODE_H / 2) + " V " + spine + " H " + (first.x + FW / 2) + " V " + edge;
+  } else {
+    const right = layout === "right";
+    const edge = right ? first.x : first.x + FW;
+    const spine = right ? edge - 22 : edge + 22;
+    const y = first.y + FH / 2;
+    entry = "M " + (right ? p.x + NODE_W / 2 : p.x - NODE_W / 2) + " " + p.y + " H " + spine + (y !== p.y ? " V " + y : "") + " H " + edge;
+  }
+  const links = pos.slice(1).map((b, i) => {
+    const a = pos[i];
+    if (a.y === b.y) {
+      const y = a.y + FH / 2;
+      return b.x > a.x ? "M " + (a.x + FW) + " " + y + " H " + b.x : "M " + a.x + " " + y + " H " + (b.x + FW);
+    }
+    const x = a.x + FW / 2;
+    return "M " + x + " " + (a.y + FH) + " V " + b.y;
+  });
+  return { entry, links };
+}
+
+function ringArc(from: OrbitNodeId, to: OrbitNodeId) {
+  const a = at(NODE[from].angle);
+  const b = at(NODE[to].angle);
+  const span = (NODE[to].angle - NODE[from].angle + 360) % 360;
+  return "M " + a.x + " " + a.y + " A " + R + " " + R + " 0 " + (span > 180 ? 1 : 0) + " 1 " + b.x + " " + b.y;
+}
+
+function spoke(from: OrbitNodeId | "you", to: OrbitNodeId | "you") {
+  const a = from === "you" ? { x: CX, y: CY } : at(NODE[from].angle);
+  const b = to === "you" ? { x: CX, y: CY } : at(NODE[to].angle);
+  return "M " + a.x + " " + a.y + " L " + b.x + " " + b.y;
+}
+
+type Stat = { tone: "wait" | "work" | "done"; n: number };
+
+type ResourceOrbit = {data?: Snapshot; handoffs: Handoff[]; paused?: boolean};
+
+const resourceNodes = NODES.map(n => {
+  const agent=crew.find(a=>a.id===n.id)!;
+  return {...n,actorId:"aro."+n.id,label:agent.name,job:agent.remit};
+});
+
+const resourceSeats=Object.fromEntries(resourceNodes.map(n=>[n.id,n])) as typeof NODE;
+
+function stats(id: OrbitNodeId, resource?: ResourceOrbit): Stat[] {
+ const jobs=resource?.data?.jobs.filter(j=>j.actor===id)??[];
+ return [{tone:"wait",n:jobs.filter(j=>j.status==="queued").length},{tone:"work",n:jobs.filter(j=>j.status==="running").length},{tone:"done",n:jobs.filter(j=>j.status==="done").length}];
+}
+
+function statusLine(id: OrbitNodeId, resource?: ResourceOrbit) {
+  if (resource?.paused) return "cached checkpoint";
+  const [wait, work, done] = stats(id, resource).map((s) => s.n);
+  const parts = [work ? "working" : null, wait ? wait + " queued" : null, done ? done + " done" : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "idle";
+}
+
+function useViewport() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return { ref, size };
+}
+
+function StatChip({ items }: { items: Stat[] }) {
+  return (
+    <span className="flex items-center gap-2 rounded-lg bg-white px-2 py-1 font-mono text-[11px] text-zinc-600 shadow-xs ring-1 ring-zinc-200 tnum">
+      {items.map((s) => (
+        <span key={s.tone} className={cn("flex items-center gap-1", s.n === 0 && "opacity-40")}>
+          {s.tone === "work" ? (
+            <LoaderCircle className={cn("size-3 text-brand-ink", s.n > 0 && "animate-spin")} />
+          ) : (
+            <span className={cn("size-2 rounded-full", s.tone === "wait" ? "bg-amber-400" : "bg-emerald-500")} />
+          )}
+          {s.n}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const TONE_DOT: Record<Frame["tone"], string> = {
+  ok: "bg-emerald-500",
+  warn: "bg-amber-400",
+  denied: "bg-red-500",
+  live: "bg-primary animate-pulse",
+};
+
+function FrameCard({
+  frame,
+  x,
+  y,
+  focused,
+  building,
+  k,
+  dim,
+  lit,
+  replay,
+  onOpen,
+  onHover,
+  onMeasure,
+}: {
+  frame: Frame;
+  x: number;
+  y: number;
+  focused: boolean;
+  /** Newly arrived: fill in on the card instead of appearing finished. */
+  building: boolean;
+  k: number;
+  dim: boolean;
+  lit: boolean;
+  replay: number;
+  onOpen: () => void;
+  onHover: (on: boolean) => void;
+  /** Reports the frame's full content height (in frame units) so a focused frame can show all of it. */
+  onMeasure: (id: string, h: number) => void;
+}) {
+  const inner = useRef<HTMLDivElement>(null);
+  const [contentH, setContentH] = useState(DH);
+  const id = frame.id;
+  useEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const h = Math.max(DH, el.scrollHeight);
+      setContentH(h);
+      onMeasure(id, h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onMeasure, id]);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={"Open " + frame.label + ": " + frame.spec.title}
+      title={focused ? undefined : frame.spec.title}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!focused) onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !focused) onOpen();
+      }}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      className={cn(
+        "orbit-spawn absolute overflow-hidden bg-white transition-[opacity,height] duration-500 outline-none",
+        !focused && "cursor-zoom-in rounded-[10px] shadow-[0_1px_2px_rgb(0_0_0/0.05),0_6px_16px_rgb(0_0_0/0.06)] ring-1 ring-zinc-200 hover:ring-zinc-400 focus-visible:ring-2 focus-visible:ring-primary",
+        !focused && lit && "ring-zinc-400",
+        !focused && frame.tone === "live" && "ring-2 ring-primary",
+        !focused && frame.tone === "denied" && "ring-red-300",
+      )}
+      style={{
+        left: x,
+        top: y,
+        width: FW,
+        height: focused ? contentH * INNER : FH,
+        opacity: dim ? 0.12 : 1,
+        zIndex: focused ? 50 : 10,
+        ...(focused ? { borderRadius: 16 / k, boxShadow: "0 0 0 " + 1 / k + "px rgb(212 212 216), 0 " + 16 / k + "px " + 48 / k + "px rgb(0 0 0 / 0.14)" } : null),
+      }}
+    >
+      <div ref={inner} style={{ width: DW, transform: "scale(" + INNER + ")", transformOrigin: "0 0" }}>
+        <FrameView
+          key={focused && replay ? "play-" + replay : "still"}
+          spec={frame.spec}
+          play={building || (focused && replay > 0)}
+          delay={building ? BUILD_DELAY : 300}
+          fit
+          open={focused}
+        />
+      </div>
+      <div
+        className={cn(
+          "absolute inset-x-0 bottom-0 flex h-[18px] items-center gap-1 border-t border-zinc-100 bg-white/95 px-1.5 text-[9.5px] font-medium text-zinc-600 transition-opacity",
+          focused && "opacity-0",
+        )}
+      >
+        <span className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[frame.tone])} />
+        <span className="truncate">{frame.label}</span>
+        {frame.tone === "live" ? (
+          <LoaderCircle className="ml-auto size-2.5 shrink-0 animate-spin text-brand-ink" />
+        ) : frame.spec.source ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={frame.spec.source.logo} alt={frame.spec.source.name} title={"From " + frame.spec.source.name} className="ml-auto size-3 shrink-0 rounded-[3px]" />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export type Focus = { kind: "node"; id: OrbitNodeId } | { kind: "frame"; id: string } | null;
+
+export function Orbit({
+  resource,
+  frames,
+  focus,
+  setFocus,
+  task,
+  onClearTask,
+  onYou,
+}: {
+  resource?: ResourceOrbit;
+  frames: Frame[];
+  focus: Focus;
+  setFocus: (f: Focus) => void;
+  /** Short label of the focused task, shown in the breadcrumb. */
+  task?: { id: string; label: string } | null;
+  onClearTask?: () => void;
+  /** The centre seat: start reviewing what is waiting. */
+  onYou?: () => void;
+}) {
+  const { ref, size } = useViewport();
+  const [hover, setHover] = useState<OrbitNodeId | null>(null);
+  const [replay, setReplay] = useState(0);
+  const [heights, setHeights] = useState<Record<string, number>>({});
+  const measure = useCallback((id: string, h: number) => setHeights((m) => (m[id] === h ? m : { ...m, [id]: h })), []);
+  const { visible, building } = useStagedFrames(frames);
+
+  // Lay out the newest frames for each node.
+  const placed = new Map<string, { frame: Frame; x: number; y: number }>();
+  const nodes=resourceNodes;
+  const seats=resourceSeats;
+  const groups = nodes.map((n) => {
+    const all = visible.filter((f) => f.node === n.id);
+    const shown = all.slice(-MAX_FRAMES);
+    const pos = slots(n.id, shown.length || 2);
+    shown.forEach((f, i) => placed.set(f.id, { frame: f, ...pos[i] }));
+    return { node: n, shown, hidden: all.length - shown.length, pos };
+  });
+
+  const focusedFrame = focus?.kind === "frame" ? placed.get(focus.id) : undefined;
+  // Replay is per visit: opening another frame shows it finished.
+  const [replayFor, setReplayFor] = useState<string | null>(null);
+  const focusedId = focusedFrame?.frame.id ?? null;
+  if (focusedId !== replayFor) {
+    setReplayFor(focusedId);
+    setReplay(0);
+  }
+  const focusH = focusedFrame ? Math.max(DH, heights[focusedFrame.frame.id] ?? DH) * INNER : FH;
+  const focusNode: OrbitNodeId | null = focus?.kind === "node" ? focus.id : (focusedFrame?.frame.node ?? null);
+  const level: "all" | "node" | "frame" = focusedFrame ? "frame" : focusNode ? "node" : "all";
+
+  // Camera: where the viewport centre sits in canvas space, and the zoom.
+  // Fit what is actually drawn: the ring, its seats, and the frames shown.
+  const boxes = [
+    { x0: CX - R, x1: CX + R, y0: CY - R, y1: CY + R },
+    ...groups.flatMap((g) => g.pos.slice(0, g.shown.length).map((s) => ({ x0: s.x, x1: s.x + FW, y0: s.y, y1: s.y + FH }))),
+  ];
+  const bx0 = Math.min(...boxes.map((b) => b.x0)) - 56;
+  const bx1 = Math.max(...boxes.map((b) => b.x1)) + 56;
+  const by0 = Math.min(...boxes.map((b) => b.y0)) - 72;
+  const by1 = Math.max(...boxes.map((b) => b.y1)) + 56;
+  const fit = size.w && size.h ? Math.min(size.w / (bx1 - bx0), size.h / (by1 - by0)) : 1;
+  let cam = { x: (bx0 + bx1) / 2, y: (by0 + by1) / 2, k: fit };
+  if (focusedFrame) {
+    // Leave room for the breadcrumb bar above and the step controls below.
+    const k = Math.min((0.72 * size.w) / FW, (size.h - 150) / focusH, 1.25 / INNER);
+    cam = { x: focusedFrame.x + FW / 2, y: focusedFrame.y + focusH / 2 - 20 / k, k };
+  } else if (focusNode) {
+    const g = groups.find((x) => x.node.id === focusNode)!;
+    const p = at(g.node.angle);
+    const shownPos = g.pos.slice(0, g.shown.length);
+    // Fit the frames and the employee's avatar; the name label may run off the edge so the frames read large.
+    const xs = [p.x - 36, p.x + 36, ...shownPos.flatMap((s) => [s.x, s.x + FW])];
+    const ys = [p.y - NODE_H / 2, p.y + NODE_H / 2, ...shownPos.flatMap((s) => [s.y, s.y + FH])];
+    const [x0, x1, y0, y1] = [Math.min(...xs) - 24, Math.max(...xs) + 24, Math.min(...ys) - 56, Math.max(...ys) + 32];
+    cam = { x: (x0 + x1) / 2, y: (y0 + y1) / 2, k: Math.min(Math.min(size.w / (x1 - x0), size.h / (y1 - y0)) * 0.96, fit * 4.5) };
+  }
+  const transform = "translate(" + (size.w / 2 - cam.x * cam.k) + "px, " + (size.h / 2 - cam.y * cam.k) + "px) scale(" + cam.k + ")";
+
+  const order = groups.flatMap((g) => g.shown.map((f) => f.id));
+  const step = (dir: 1 | -1) => {
+    if (!focusedFrame) return;
+    const i = order.indexOf(focusedFrame.frame.id);
+    const next = order[(i + dir + order.length) % order.length];
+    if (next) setFocus({ kind: "frame", id: next });
+  };
+  const up = () => setFocus(focusedFrame ? { kind: "node", id: focusedFrame.frame.node } : null);
+  const escape = () => (focus ? up() : onClearTask?.());
+
+  const keys = useRef({ escape, step, replay: () => setReplay((r) => r + 1) });
+  useEffect(() => {
+    keys.current = { escape, step, replay: () => setReplay((r) => r + 1) };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+      if (e.key === "Escape") keys.current.escape();
+      if (e.key === "ArrowRight") keys.current.step(1);
+      if (e.key === "ArrowLeft") keys.current.step(-1);
+      if (e.key.toLowerCase() === "r" && !e.metaKey && !e.ctrlKey) keys.current.replay();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const waiting = Number(["review","blocked"].includes(resource?.data?.current?.state??""));
+  const here = waiting > 0;
+  const running = (aid: string) => resource?.paused ? false : resource?.data?.jobs.some(j=>("aro."+j.actor)===aid && j.status==="running");
+  const seatStyle = useSeatStyle();
+  const live = Object.fromEntries(nodes.map((n) => [n.id, running(n.actorId)])) as Partial<Record<OrbitNodeId, boolean>>;
+  const edges = resource?.handoffs.map(h=>({key:String(h.id),d:ringArc(h.from,h.to),state:"done"}))??[];
+  if(resource && here)edges.push({key:"review",d:spoke(resource.data?.current?.state==="blocked"?"compute":"finance","you"),state:"active"});
+  const handoffs = resource?.paused ? [] : resource?.handoffs ?? [];
+  const item=resource?.data?.current;
+  const approvals=resource && !resource.paused && item?.state==="review" ? [{
+    id:item.id,workItemId:item.id,subjectType:"transfer",subjectId:item.id,requestedBy:"aro.finance",
+    summary:"Transfer "+resource.data!.lines.reduce((sum,l)=>sum+l.units,0)+" "+item.unit+" across the network"
+  }] : [];
+  const life = useAgentLife(resource?.paused ? [] : resourceLifeEvents(resource?.data?.activity ?? []), approvals);
+  const agentOf = (actorId: string) => resource?.data?.agents.find((a) => a.agentId === actorId);
+  const [away, setAway] = useState<Partial<Record<OrbitNodeId, boolean>>>({});
+  const [runner, setRunner] = useState<OrbitNodeId | null>(null);
+  // Where each working employee stands: on top of the frame it is building.
+  const workSpot = (g: (typeof groups)[number]) => {
+    const building_ = g.shown.filter((f) => building[f.id]);
+    const busy = live[g.node.id] || building_.length > 0;
+    const target = g.shown.findLast((f) => f.tone === "live") ?? building_.at(-1) ?? (busy ? g.shown.at(-1) : undefined);
+    const at_ = target && busy ? placed.get(target.id) : undefined;
+    return at_ ? { x: at_.x + FW - 26, y: at_.y + 8 } : null;
+  };
+  const dimNode = (id: OrbitNodeId) => level !== "all" && focusNode !== id;
+  const lit = (id: OrbitNodeId) => level !== "frame" && hover === id;
+  const hoverOn = (id: OrbitNodeId) => (on: boolean) => setHover((h) => (on ? id : h === id ? null : h));
+
+  return (
+    <div ref={ref} className="absolute inset-0" onClick={up}>
+      <div className="absolute inset-0 overflow-hidden">
+      {size.w ? (
+        <div
+          className="absolute top-0 left-0"
+          style={{ width: W, height: H, transform, transformOrigin: "0 0", transition: "transform 750ms cubic-bezier(0.22, 1, 0.36, 1)" }}
+        >
+          <svg aria-hidden="true" width={W} height={H} className={cn("pointer-events-none absolute inset-0 overflow-visible transition-opacity duration-500", level === "frame" && "opacity-20")}>
+            <defs>
+              {(["rgb(212 212 216)", "var(--brand-ink)"] as const).map((c, i) => (
+                <marker key={c} id={"orbit-arrow-" + i} viewBox="0 0 6 6" refX={5.5} refY={3} markerWidth={6} markerHeight={6} markerUnits="userSpaceOnUse" orient="auto">
+                  <path d="M 0.5 0.5 L 5.5 3 L 0.5 5.5" fill="none" stroke={c} strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />
+                </marker>
+              ))}
+            </defs>
+            <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgb(212 212 216)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            {SHOW_RING_LABEL ? (
+              <>
+                <path id="orbit-ring-label" d={"M " + at(LABEL_ARC[0]).x + " " + at(LABEL_ARC[0]).y + " A " + R + " " + R + " 0 0 0 " + at(LABEL_ARC[1]).x + " " + at(LABEL_ARC[1]).y} fill="none" />
+                <text className="fill-zinc-400 font-mono text-[10px] tracking-[0.2em] uppercase">
+                  <textPath href="#orbit-ring-label" startOffset="50%" textAnchor="middle">
+                    Orchestrator passes work around the ring
+                  </textPath>
+                </text>
+              </>
+            ) : null}
+            {NODES.map((n) => (
+              <path key={n.id} d={spoke("you", n.id)} stroke="rgb(212 212 216)" strokeDasharray="4 6" fill="none" vectorEffect="non-scaling-stroke" />
+            ))}
+            {groups.map((g) => {
+              // No arrows out of a seat with nothing to show yet.
+              if (!g.shown.length) return null;
+              const { entry, links } = chain(g.node.id, g.pos);
+              const on = lit(g.node.id);
+              const marker = "url(#orbit-arrow-" + (on ? 1 : 0) + ")";
+              return (
+                <g key={"c-" + g.node.id} opacity={dimNode(g.node.id) ? 0.3 : 1}>
+                  {[entry, ...links].map((d, i) => (
+                    <path
+                      key={i}
+                      d={d}
+                      stroke={on ? "var(--brand-ink)" : "rgb(212 212 216)"}
+                      strokeWidth={on ? 1.5 : 1}
+                      strokeDasharray={!on && i === 0 ? "3 5" : undefined}
+                      className={on && i === 0 ? "flow-dash" : undefined}
+                      markerEnd={marker}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ))}
+                </g>
+              );
+            })}
+            {edges
+              .filter((e) => e.state !== "idle")
+              .map((e) =>
+                e.state === "done" ? (
+                  <path key={e.key} d={e.d} stroke="var(--brand-ink)" strokeOpacity={0.35} strokeWidth={1.5} fill="none" vectorEffect="non-scaling-stroke" />
+                ) : (
+                  <g key={e.key}>
+                    <path d={e.d} stroke="var(--primary)" strokeWidth={2} fill="none" className="flow-dash" vectorEffect="non-scaling-stroke" />
+                    {[0, 0.45, 0.9].map((delay) => (
+                      <rect key={delay} x={-3.5} y={-3.5} width={7} height={7} rx={1.5} fill="var(--brand-ink)">
+                        <animateMotion dur="1.6s" begin={delay + "s"} repeatCount="indefinite" path={e.d} />
+                      </rect>
+                    ))}
+                  </g>
+                ),
+              )}
+          </svg>
+
+          {groups.map((g) =>
+            g.shown.length
+              ? g.shown.map((f, i) => (
+                  <FrameCard
+                    key={f.id}
+                    frame={f}
+                    x={g.pos[i].x}
+                    y={g.pos[i].y}
+                    k={cam.k}
+                    focused={focusedFrame?.frame.id === f.id}
+                    building={Boolean(building[f.id])}
+                    dim={level === "frame" ? focusedFrame?.frame.id !== f.id : dimNode(g.node.id)}
+                    lit={lit(g.node.id)}
+                    replay={replay}
+                    onOpen={() => setFocus({ kind: "frame", id: f.id })}
+                    onHover={hoverOn(g.node.id)}
+                    onMeasure={measure}
+                  />
+                ))
+              : null,
+          )}
+
+          {groups.map((g) => {
+            const p = at(g.node.angle);
+            return (
+              <div
+                key={g.node.id}
+                className="absolute z-20 transition-opacity duration-500"
+                style={{ left: p.x - NODE_W / 2, top: p.y - NODE_H / 2, width: NODE_W, height: NODE_H, opacity: level === "frame" ? 0.12 : dimNode(g.node.id) ? 0.35 : 1 }}
+              >
+                {seatStyle === "current" ? (
+                  <>
+                    <div className="absolute -top-9 left-1/2 -translate-x-1/2">
+                      <StatChip items={stats(g.node.id, resource)} />
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={g.node.label}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                    setFocus({ kind: "node", id: g.node.id });
+                      }}
+                      onMouseEnter={() => hoverOn(g.node.id)(true)}
+                      onMouseLeave={() => hoverOn(g.node.id)(false)}
+                      onFocus={() => hoverOn(g.node.id)(true)}
+                      onBlur={() => hoverOn(g.node.id)(false)}
+                      className={cn(
+                        "flex size-full cursor-zoom-in items-center gap-2.5 rounded-xl bg-white pr-3 pl-2.5 text-left shadow-sm ring-1 ring-zinc-200 hover:ring-zinc-400",
+                        lit(g.node.id) && "ring-zinc-400",
+                        live[g.node.id] && "ring-2 ring-primary",
+                      )}
+                    >
+                      <AgentAvatar actorId={g.node.actorId} size="lg" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5 text-[14.5px] leading-tight font-medium text-zinc-800">
+                          <span className="truncate">{g.node.label}</span>
+                          {live[g.node.id] ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-brand-ink" /> : null}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] leading-tight text-zinc-500">
+                          {g.node.job}
+                        </span>
+                      </span>
+                    </button>
+                  </>
+                ) : seatStyle === "tile" ? (
+                  <>
+                    <div className="absolute -top-9 left-1/2 -translate-x-1/2">
+                      <StatChip items={stats(g.node.id, resource)} />
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={g.node.label}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                    setFocus({ kind: "node", id: g.node.id });
+                      }}
+                      onMouseEnter={() => hoverOn(g.node.id)(true)}
+                      onMouseLeave={() => hoverOn(g.node.id)(false)}
+                      onFocus={() => hoverOn(g.node.id)(true)}
+                      onBlur={() => hoverOn(g.node.id)(false)}
+                      className={cn(
+                        "absolute top-1/2 left-1/2 flex h-14 w-[150px] -translate-x-1/2 -translate-y-1/2 cursor-zoom-in items-center justify-center rounded-lg border border-zinc-200 bg-white text-[16px] text-zinc-600 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors hover:border-zinc-300 hover:text-zinc-900",
+                        lit(g.node.id) && "border-zinc-300 text-zinc-900",
+                        live[g.node.id] && "border-zinc-400 text-zinc-900",
+                      )}
+                    >
+                      {g.node.label}
+                    </button>
+                  </>
+                ) : seatStyle === "dot" ? (
+                  <button
+                    type="button"
+                    aria-label={g.node.label}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFocus({ kind: "node", id: g.node.id });
+                  }}
+                  onMouseEnter={() => hoverOn(g.node.id)(true)}
+                  onMouseLeave={() => hoverOn(g.node.id)(false)}
+                  onFocus={() => hoverOn(g.node.id)(true)}
+                  onBlur={() => hoverOn(g.node.id)(false)}
+                    className={cn(
+                      "absolute top-1/2 left-1/2 flex h-10 -translate-x-1/2 -translate-y-1/2 cursor-zoom-in items-center gap-2 rounded-full border border-zinc-200 bg-white pr-4 pl-3 text-[14px] whitespace-nowrap text-zinc-600 transition-colors hover:border-zinc-300 hover:text-zinc-900",
+                      lit(g.node.id) && "border-zinc-300 text-zinc-900",
+                    )}
+                    title={statusLine(g.node.id, resource)}
+                  >
+                    <span
+                      className={cn(
+                        "size-1.5 rounded-full",
+                        live[g.node.id] ? "animate-pulse bg-primary ring-4 ring-primary/25" : stats(g.node.id, resource)[0].n ? "bg-amber-400" : "bg-zinc-300",
+                      )}
+                    />
+                    {g.node.label}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={g.node.label}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFocus({ kind: "node", id: g.node.id });
+                  }}
+                  onMouseEnter={() => hoverOn(g.node.id)(true)}
+                  onMouseLeave={() => hoverOn(g.node.id)(false)}
+                  onFocus={() => hoverOn(g.node.id)(true)}
+                  onBlur={() => hoverOn(g.node.id)(false)}
+                    className="group absolute inset-0 cursor-zoom-in"
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-1/2 left-1/2 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-2xl border border-zinc-200 transition-[transform,border-color] duration-200 group-hover:-translate-y-[calc(50%+2px)] group-hover:border-zinc-300",
+                        lit(g.node.id) && "border-zinc-400",
+                        live[g.node.id] && "border-primary ring-4 ring-primary/25",
+                      )}
+                      style={{ background: spriteTint(NODE[g.node.id].actorId) }}
+                    >
+                      <PixelAgent
+                        actorId={g.node.actorId}
+                        size={40}
+                        working={Boolean(live[g.node.id])}
+                        still={resource?.paused}
+                        mood={spriteMood(life.reactions[g.node.id])}
+                        className={cn("transition-opacity duration-300", away[g.node.id] && "opacity-15")}
+                      />
+                    </span>
+                    <span
+                      className={cn(
+                        "absolute flex flex-col gap-0.5 whitespace-nowrap",
+                        (g.node.layout === "right" || g.node.layout === "up" || g.node.layout === "down") && "top-1/2 left-1/2 ml-10 -translate-y-1/2 items-start",
+                        g.node.layout === "left" && "top-1/2 right-1/2 mr-10 -translate-y-1/2 items-end",
+                      )}
+                    >
+                      <span className={cn("text-[15px] text-zinc-500 transition-colors group-hover:text-zinc-900", (lit(g.node.id) || live[g.node.id]) && "text-zinc-900")}>
+                        {g.node.label}
+                      </span>
+                      <span className="text-[11px] text-zinc-400 tnum">{statusLine(g.node.id, resource)}</span>
+                    </span>
+                  </button>
+                )}
+                {seatStyle === "ring" ? (
+                  <SeatLife
+                    agent={agentOf(g.node.actorId)}
+                    label={g.node.label}
+                    reaction={life.reactions[g.node.id]}
+                    hovered={hover === g.node.id && level !== "frame"}
+                  />
+                ) : null}
+                {g.hidden > 0 ? (
+                  <span className="absolute top-1/2 -right-2 translate-x-full -translate-y-1/2 font-mono text-[10px] text-zinc-400">+{g.hidden}</span>
+                ) : null}
+              </div>
+            );
+          })}
+
+          <div
+            className="absolute z-20 transition-opacity duration-500"
+            style={{ left: CX - 90, top: CY - 60, width: 180, height: 140, opacity: level === "all" ? 1 : 0.15 }}
+          >
+            <YouCard actorId="aro.operator" here={Boolean(here)} label={waiting ? waiting + (waiting === 1 ? " needs you" : " need you") : "all clear"} onClick={onYou} />
+          </div>
+
+          {groups.map((g) => (
+            <FrameWorker
+              key={"worker-" + g.node.id}
+              actorId={g.node.actorId}
+              home={at(g.node.angle)}
+              spot={workSpot(g)}
+              tool={agentOf(g.node.actorId)?.runTools.at(-1) ?? g.shown.findLast(f => building[f.id])?.tool}
+              dim={level === "frame" ? 0.12 : dimNode(g.node.id) ? 0.35 : 1}
+              hidden={runner === g.node.id}
+              onAway={(v) => setAway((a) => (Boolean(a[g.node.id]) === v ? a : { ...a, [g.node.id]: v }))}
+            />
+          ))}
+          <HandoffRunner
+            handoffs={handoffs}
+            seats={seats}
+            center={{ x: CX, y: CY }}
+            radius={R}
+            hidden={level === "frame"}
+            onPass={(n) => life.react(n, "nod")}
+            onArrive={(h) => h.kind !== "broadcast" && life.react(h.to, h.kind === "question" ? "question" : "nod")}
+            onRunner={setRunner}
+          />
+          <ApprovalVisitors
+            approvals={approvals}
+            arrivals={life.arrivals}
+            leaving={life.leaving}
+            seats={seats}
+            center={{ x: CX, y: CY - 8 }}
+            radius={R}
+            hidden={level !== "all"}
+          />
+        </div>
+      ) : null}
+      </div>
+
+      <Toolbar
+        level={level}
+        task={task ?? null}
+        onClearTask={onClearTask}
+        networkLabel="Hollow network"
+        nodeLabel={focusNode ? seats[focusNode].label : null}
+        frameLabel={focusedFrame?.frame.label ?? null}
+        onHome={() => setFocus(null)}
+        onNode={() => focusNode && setFocus({ kind: "node", id: focusNode })}
+        onBack={up}
+        onStep={step}
+        onReplay={() => setReplay((r) => r + 1)}
+      />
+    </div>
+  );
+}
+
+function YouCard({ actorId, here, label, onClick }: { actorId:string; here: boolean; label: string; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={!here || !onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      className="group relative flex size-full flex-col items-center justify-start pt-3 enabled:cursor-pointer"
+    >
+      <span className="relative grid size-20 place-items-center rounded-[22px] border border-zinc-200 bg-white transition-transform duration-200 group-enabled:group-hover:-translate-y-0.5">
+        <PixelAgent actorId={actorId} size={58} working={here} />
+        {here ? (
+          <span className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full bg-[#e2558b] text-[13px] leading-none font-bold text-white shadow-[0_0_0_3px_#fbfaf7]">
+            !
+          </span>
+        ) : null}
+      </span>
+      <span className="mt-2 text-[15px] leading-none text-zinc-900">You</span>
+      <span className={cn("mt-1 font-mono text-[10px] tnum", here ? "text-zinc-600" : "text-zinc-400")}>{label}</span>
+    </button>
+  );
+}
+
+function ToolButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="grid size-8 place-items-center rounded-lg text-zinc-600 hover:bg-zinc-100"
+    >
+      {children}
+    </button>
+  );
+}
+
+function Toolbar({
+  networkLabel,
+  level,
+  task,
+  onClearTask,
+  nodeLabel,
+  frameLabel,
+  onHome,
+  onNode,
+  onBack,
+  onStep,
+  onReplay,
+}: {
+  networkLabel:string;
+  level: "all" | "node" | "frame";
+  task: { id: string; label: string } | null;
+  onClearTask?: () => void;
+  nodeLabel: string | null;
+  frameLabel: string | null;
+  onHome: () => void;
+  onNode: () => void;
+  onBack: () => void;
+  onStep: (dir: 1 | -1) => void;
+  onReplay: () => void;
+}) {
+  const home = () => {
+    onHome();
+    onClearTask?.();
+  };
+  const sep = <span className="text-zinc-300">/</span>;
+  const link = "text-zinc-500 hover:text-zinc-900";
+  return (
+    <>
+      {/* Where you are, as plain text on the canvas. */}
+      <div className="absolute top-5 left-5 z-40 flex items-center gap-2 text-[14px]" onClick={(e) => e.stopPropagation()}>
+        {level !== "all" ? (
+          <ToolButton label="Zoom out" onClick={onBack}>
+            <ArrowLeft className="size-4" />
+          </ToolButton>
+        ) : null}
+        <button type="button" onClick={home} className={link}>
+          {networkLabel}
+        </button>
+        {task ? (
+          <>
+            {sep}
+            <button type="button" onClick={onHome} className="max-w-[260px] truncate font-medium text-zinc-900">
+              {task.label}
+            </button>
+            <button
+              type="button"
+              onClick={onClearTask}
+              aria-label="Show all work"
+              title="Show all work (Esc)"
+              className="grid size-6 place-items-center rounded-full text-zinc-400 hover:bg-zinc-200/60 hover:text-zinc-900"
+            >
+              <X className="size-3.5" />
+            </button>
+          </>
+        ) : null}
+        {nodeLabel ? (
+          <>
+            {sep}
+            <button type="button" onClick={onNode} className={cn(link, level === "node" && "font-medium text-zinc-900")}>
+              {nodeLabel}
+            </button>
+          </>
+        ) : null}
+        {frameLabel ? (
+          <>
+            {sep}
+            <span className="font-medium text-zinc-900">{frameLabel}</span>
+          </>
+        ) : null}
+      </div>
+
+      {/* Frame playback controls. */}
+      <div className="absolute bottom-5 left-5 z-40 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {level === "frame" ? (
+          <div className="card-soft flex h-9 items-center gap-0.5 rounded-full! px-0.5">
+            <ToolButton label="Previous frame" onClick={() => onStep(-1)}>
+              <ChevronLeft className="size-4" />
+            </ToolButton>
+            <ToolButton label="Replay (R)" onClick={onReplay}>
+              <RotateCcw className="size-4" />
+            </ToolButton>
+            <ToolButton label="Next frame" onClick={() => onStep(1)}>
+              <ChevronRight className="size-4" />
+            </ToolButton>
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}

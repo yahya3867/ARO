@@ -1,0 +1,276 @@
+body {
+  font-family: var(--font-geist-sans), sans-serif;
+  color: #18181b;
+  background: #fff;
+}
+.resource-workspace button,
+.resource-dialog button {
+  cursor: pointer;
+}
+.resource-workspace button:focus-visible,
+.resource-dialog button:focus-visible {
+  outline: 2px solid #71717a;
+  outline-offset: 3px;
+}
+.floor-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.case-rail {
+  width: 380px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-left: 1px solid #e4e4e7;
+}
+.railhead,
+.record-nav,
+.employee,
+.action,
+.search-records,
+.railhead button,
+.record-nav button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.railhead,
+.record-nav {
+  justify-content: space-between;
+}
+.railhead {
+  min-height: 50px;
+  border-bottom: 1px solid #f0f0f1;
+  padding: 0 20px;
+  font-size: 12px;
+}
+.railhead small,
+.railbody small,
+.measures small,
+.task-row small {
+  font-size: 11px;
+  color: #71717a;
+  font-weight: 400;
+}
+.railbody {
+  padding: 20px;
+  overflow: auto;
+  flex: 1;
+  font-size: 14px;
+}
+.railbody h2,
+.lanes h2 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  margin: 4px 0 16px;
+}
+.railbody p {
+  margin: 8px 0 15px;
+  line-height: 1.6;
+  color: #3f3f46;
+}
+.employee {
+  font-size: 12px;
+  font-weight: 550;
+}
+.employee h2 {
+  margin: 0;
+}
+.action {
+  background: #18181b;
+  color: white;
+  font-weight: 500;
+  border-radius: 7px;
+  padding: 6px 11px;
+  font-size: 13px;
+  justify-content: center;
+}
+.action:disabled {
+  opacity: 0.6;
+}
+.help {
+  padding: 4px;
+  color: #71717a;
+}
+.task-row,
+.records button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  margin: 6px 0;
+  font-size: 14px;
+}
+.task-row small,
+.records small {
+  display: block;
+}
+.task-row svg {
+  float: right;
+}
+.task-row:hover,
+.records button:hover {
+  background: #fafafa;
+}
+.record-nav {
+  font-size: 12px;
+  margin: 16px 0;
+}
+.measures {
+  margin: 12px 0 20px;
+}
+.measures > div {
+  display: grid;
+  grid-template-columns: 65px 1fr 42px;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  margin: 4px 0;
+}
+.measures i {
+  height: 17px;
+  background: #f4f4f5;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.measures b {
+  display: block;
+  height: 100%;
+  background: #27272a;
+}
+.measures > div:nth-child(2) b {
+  background: #66a754;
+}
+.search-records {
+  margin: 10px;
+  border: 1px solid #dedee2;
+  border-radius: 18px;
+  height: 44px;
+  padding: 0 12px;
+  color: #71717a;
+  box-shadow: 0 1px 2px #00000008;
+}
+.search-records input {
+  width: 100%;
+  font-size: 13px;
+  outline: none;
+}
+.other-view {
+  overflow: auto;
+  flex: 1;
+  padding: 28px;
+}
+.other-view h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  margin-bottom: 20px;
+}
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.lanes section {
+  background: #fafafa;
+  border-radius: 12px;
+  padding: 16px;
+}
+.lanes a {
+  background: white;
+}
+.other-view table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.other-view th,
+.other-view td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+.resource-dialog select,
+.resource-dialog input {
+  border: 1px solid #d4d4d8;
+  border-radius: 7px;
+  padding: 8px;
+  width: 100%;
+  background: white;
+}
+.resource-dialog label,
+.resource-dialog p {
+  font-size: 14px;
+}
+.failure {
+  color: #991b1b;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.evidence {
+  font-size: 12px;
+}
+.evidence > div {
+  padding: 5px 0;
+  border-bottom: 1px solid #eee;
+}
+.evidence dt {
+  color: #71717a;
+  text-transform: capitalize;
+}
+.evidence dd {
+  margin-left: 10px;
+  overflow-wrap: anywhere;
+}
+.e-list > div {
+  border-left: 2px solid #e4e4e7;
+  padding-left: 8px;
+  margin: 5px 0;
+}
+@media (max-width: 760px) {
+  .floor-layout {
+    flex-direction: column;
+  }
+  .case-rail {
+    width: 100%;
+    max-height: 40dvh;
+    border-left: 0;
+    border-top: 1px solid #e4e4e7;
+  }
+  .floor-layout > .bg-canvas {
+    min-height: 36dvh;
+  }
+  .resource-workspace > header {
+    gap: 4px;
+    padding: 0 5px;
+  }
+  .resource-workspace nav a {
+    font-size: 11px;
+    padding: 0 4px;
+  }
+  .resource-workspace .help {
+    display: none;
+  }
+  .resource-workspace .action {
+    font-size: 11px;
+  }
+  .lanes {
+    grid-template-columns: 1fr;
+  }
+  .railhead {
+    min-height: 35px;
+  }
+  .railbody {
+    padding: 12px;
+  }
+  .search-records {
+    min-height: 32px;
+    height: 32px;
+    margin: 4px 10px;
+  }
+}

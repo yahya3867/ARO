@@ -1,0 +1,11 @@
+.env*
+.vercel
+.git
+.next
+node_modules
+data
+site
+artifacts
+*.zip
+docs
+tests
