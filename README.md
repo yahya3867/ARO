@@ -1,3 +1,5 @@
+![ARO cover](public/aro_cover.png)
+
 # ARO — Autonomous Resource Operations
 
 Essential resources. Autonomously coordinated.
@@ -94,3 +96,5 @@ npm start
 ```
 
 The application contains resource operations and their shared workflow infrastructure. See [the architecture](docs/architecture.md) for persistence, execution, hosting and continuity details.
+
+![ARO second cover](public/aro_cover2.png)
